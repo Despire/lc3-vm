@@ -1,3 +1,8 @@
+use std::io::{
+    self,
+    Read,
+};
+
 #[repr(u16)]
 pub enum Trap {
     GetC = 0x20, // get character from keyboard
@@ -160,12 +165,12 @@ impl CPU {
             Instruction::OpLea => self.load_effective_address(instruction),
             Instruction::OpTrap => {
                 match Trap::from(instruction & 0xFF) {
-                    Trap::GetC => (),
-                    Trap::Out => (),
-                    Trap::PutS => (),
-                    Trap::In => (),
-                    Trap::PutSp => (),
-                    Trap::Halt => (),
+                    Trap::GetC => self.get_c(),
+                    Trap::Out => self.out(),
+                    Trap::PutS => self.put_s(),
+                    Trap::In => self.read(),
+                    Trap::PutSp => self.put_sp(),
+                    Trap::Halt => self.halt(),
                 }
             }
         }
@@ -225,7 +230,7 @@ impl CPU {
     }
 }
 
-// instructions.
+// cpu instructions.
 impl CPU {
     pub fn add(&mut self, instr: u16) {
         // dst register
@@ -366,5 +371,64 @@ impl CPU {
         CPU::sign_extend(&mut offset, 6);
 
         mem_write(*self.register_from(base_reg) + offset, *self.register_from(src));
+    }
+}
+
+// trap instructions
+impl CPU {
+    pub fn put_s(&self) {
+        let mut it = self.r0;
+        let mut c = mem_read(it);
+
+        while c != 0x0 {
+            print!("{}", c as char);
+            it += 1;
+            c = mem_read(it);
+        }
+    }
+
+    pub fn get_c(&mut self) {
+        let mut buff = [0 as u8; 1];
+        io::stdin().read_exact(&mut buff).expect("failed to read char from stdin");
+        self.r0 = buff[0] as u16;
+    }
+
+    pub fn out(&self) {
+        print!("{}", self.r0 as u8 as char);
+    }
+
+    pub fn read(&mut self) {
+        print!("Enter a character: ");
+
+        let mut buff = [0 as u8; 1];
+        io::stdin().read_exact(&mut buff).expect("failed to read char from stdin");
+
+        print!("{}", buff[0] as char);
+
+        self.r0 = buff[0] as u16;
+    }
+
+    pub fn put_sp(&self) {
+        let mut it = self.r0;
+        let mut c = mem_read(it);
+
+        while c != 0x0 {
+            let c1 = c & 0xFF;
+
+            print!("{}", c1 as char);
+
+            let c2 = c >> 8;
+            if c2 != 0x0 {
+                print!("{}", c2 as char);
+            }
+
+            it += 1;
+            c = mem_read(it);
+        }
+    }
+
+    pub fn halt(&self) {
+        print!("HALT");
+        std::process::abort();
     }
 }
