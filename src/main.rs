@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::io;
+use std::io::Read;
 use std::path::Path;
 
 use lc3_vm::cpu::CPU;
@@ -34,12 +35,13 @@ fn main() {
 
 fn read_image(path: &String, m: &mut Memory) -> io::Result<()> {
     let path = Path::new(path);
-    let file = fs::read_to_string(path)?;
-    let file_bytes = file.as_bytes();
 
-    let mut origin = u16::from_be_bytes([file_bytes[0], file_bytes[1]]).swap_bytes();
+    let mut raw_file_contents = Vec::new();
+    fs::File::open(path)?.read_to_end(&mut raw_file_contents)?;
 
-    for b in file_bytes.chunks(2).skip(1) {
+    let mut origin = u16::from_be_bytes([raw_file_contents[0], raw_file_contents[1]]).swap_bytes();
+
+    for b in raw_file_contents.chunks(2).skip(1) {
         m.memory_write(origin, u16::from_be_bytes([b[0], b[1]]).swap_bytes());
         origin += 1;
     }

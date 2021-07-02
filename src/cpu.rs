@@ -301,7 +301,7 @@ impl<'a> CPU<'a> {
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        let cond = Condition::from(((instr >> 9) & 0x7) as u16);
+        let cond = ((instr >> 9) & 0x7) as u16;
 
         if (self.cond & cond as u16) > 0x0 {
             self.pc = self.pc + offset;
