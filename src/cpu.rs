@@ -1,16 +1,15 @@
-use std::io::{
-    self,
-    Read,
-};
+use super::memory::Memory;
+
+use std::io::{self, Read};
 
 #[repr(u16)]
 pub enum Trap {
-    GetC = 0x20, // get character from keyboard
-    Out = 0x21, // output character
-    PutS = 0x22, // output word string
-    In = 0x23, // get characater from keyboard echoes onto the terminal
+    GetC = 0x20,  // get character from keyboard
+    Out = 0x21,   // output character
+    PutS = 0x22,  // output word string
+    In = 0x23,    // get characater from keyboard echoes onto the terminal
     PutSp = 0x24, // output a byte string
-    Halt = 0x25, // halt the program
+    Halt = 0x25,  // halt the program
 }
 
 impl Trap {
@@ -47,21 +46,21 @@ impl Condition {
 
 #[repr(u8)]
 pub enum Instruction {
-    OpBr, // branch
-    OpAdd, // add
-    OpLd, // load
-    OpSt, // store
-    OpJsr, // jump register
-    OpAnd, // bitwise and
-    OpLdr, // load register
-    OpStr, // store register
-    OpRti, // unused
-    OpNot, // bitwise not
-    OpLdi, // load indirect
-    OpSti, // store indirect
-    OpJmp, // jump
-    OpRes, // reserverd (unused)
-    OpLea, // load effectire address
+    OpBr,   // branch
+    OpAdd,  // add
+    OpLd,   // load
+    OpSt,   // store
+    OpJsr,  // jump register
+    OpAnd,  // bitwise and
+    OpLdr,  // load register
+    OpStr,  // store register
+    OpRti,  // unused
+    OpNot,  // bitwise not
+    OpLdi,  // load indirect
+    OpSti,  // store indirect
+    OpJmp,  // jump
+    OpRes,  // reserverd (unused)
+    OpLea,  // load effectire address
     OpTrap, // execute trap
 }
 
@@ -110,7 +109,7 @@ impl Instruction {
     }
 }
 
-pub struct CPU {
+pub struct CPU<'a> {
     // general purpose registers.
     pub r0: u16,
     pub r1: u16,
@@ -122,14 +121,17 @@ pub struct CPU {
     pub r7: u16,
 
     // program counter register.
-    pub pc: u16, 
+    pub pc: u16,
 
     // condition register.
     pub cond: u16,
+
+    // memory reference.
+    pub memory: &'a mut Memory,
 }
 
-impl CPU {
-    pub fn new() -> Self {
+impl<'a> CPU<'a> {
+    pub fn new(memory: &'a mut Memory) -> Self {
         CPU {
             r0: 0,
             r1: 0,
@@ -141,6 +143,15 @@ impl CPU {
             r7: 0,
             pc: 0x3000, // 0x3000 is the default position.
             cond: 0,
+            memory,
+        }
+    }
+
+    pub fn run(&mut self) -> ! {
+        loop {
+            let instr = self.memory.memory_read(self.pc);
+            self.next_instruction();
+            self.exec(instr);
         }
     }
 
@@ -163,23 +174,21 @@ impl CPU {
             Instruction::OpJmp => self.jump(instruction),
             Instruction::OpRes => panic!("OP_RES unsupported instruction"),
             Instruction::OpLea => self.load_effective_address(instruction),
-            Instruction::OpTrap => {
-                match Trap::from(instruction & 0xFF) {
-                    Trap::GetC => self.get_c(),
-                    Trap::Out => self.out(),
-                    Trap::PutS => self.put_s(),
-                    Trap::In => self.read(),
-                    Trap::PutSp => self.put_sp(),
-                    Trap::Halt => self.halt(),
-                }
-            }
+            Instruction::OpTrap => match Trap::from(instruction & 0xFF) {
+                Trap::GetC => self.get_c(),
+                Trap::Out => self.out(),
+                Trap::PutS => self.put_s(),
+                Trap::In => self.read(),
+                Trap::PutSp => self.put_sp(),
+                Trap::Halt => self.halt(),
+            },
         }
     }
 
     pub fn next_instruction(&mut self) {
         self.pc += 1
     }
-    
+
     pub fn set_cond(&mut self, r: u16) {
         if r == 0 {
             self.cond = Condition::FlZro as u16;
@@ -190,10 +199,9 @@ impl CPU {
         }
     }
 
-
     fn sign_extend(v: &mut u16, c: u32) {
         if (*v >> (c - 1)) & 0x1 == 1 {
-           *v |= 0xFFFF << c;
+            *v |= 0xFFFF << c;
         }
     }
 
@@ -213,32 +221,32 @@ impl CPU {
         }
     }
 
-    fn register_from(&self, i: u8) -> & u16 {
+    fn register_from(&self, i: u8) -> &u16 {
         match i {
-            0 => & self.r0,
-            1 => & self.r1,
-            2 => & self.r2,
-            3 => & self.r3,
-            4 => & self.r4,
-            5 => & self.r5,
-            6 => & self.r6,
-            7 => & self.r7,
-            8 => & self.pc,
-            9 => & self.cond,
+            0 => &self.r0,
+            1 => &self.r1,
+            2 => &self.r2,
+            3 => &self.r3,
+            4 => &self.r4,
+            5 => &self.r5,
+            6 => &self.r6,
+            7 => &self.r7,
+            8 => &self.pc,
+            9 => &self.cond,
             _ => panic!("unknown register: {}", i),
         }
     }
 }
 
 // cpu instructions.
-impl CPU {
+impl<'a> CPU<'a> {
     pub fn add(&mut self, instr: u16) {
         // dst register
         let dst = ((instr >> 9) & 0x7) as u8;
 
         // left side.
         let left = *self.register_from(((instr >> 6) & 0x7) as u8);
-        
+
         // is imm
         if (instr >> 5) & 0x1 == 1 {
             let mut imm_5 = instr & 0x1F;
@@ -258,7 +266,8 @@ impl CPU {
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        *self.register_from_mut(dst) = mem_read(mem_read(self.pc + offset));
+        let loc = self.memory.memory_read(self.pc + offset);
+        *self.register_from_mut(dst) = self.memory.memory_read(loc);
         self.set_cond(*self.register_from(dst));
     }
 
@@ -323,7 +332,7 @@ impl CPU {
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        *self.register_from_mut(dest) = mem_read(self.pc + offset);
+        *self.register_from_mut(dest) = self.memory.memory_read(self.pc + offset);
 
         self.set_cond(*self.register_from(dest));
     }
@@ -334,7 +343,9 @@ impl CPU {
         let mut offset = instr & 0x3F;
         CPU::sign_extend(&mut offset, 6);
 
-        *self.register_from_mut(dest) = mem_read(*self.register_from(base_reg) + offset);
+        *self.register_from_mut(dest) = self
+            .memory
+            .memory_read(*self.register_from(base_reg) + offset);
 
         self.set_cond(*self.register_from(dest));
     }
@@ -353,7 +364,8 @@ impl CPU {
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        mem_write(self.pc + offset, *self.register_from(src));
+        self.memory
+            .memory_write(self.pc + offset, *self.register_from(src));
     }
 
     pub fn store_indirect(&mut self, instr: u16) {
@@ -361,7 +373,8 @@ impl CPU {
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        mem_write(mem_read(self.pc + offset), *self.register_from(src));
+        let loc = self.memory.memory_read(self.pc + offset);
+        self.memory.memory_write(loc, *self.register_from(src));
     }
 
     pub fn store_register(&mut self, instr: u16) {
@@ -370,26 +383,31 @@ impl CPU {
         let mut offset = instr & 0x3F;
         CPU::sign_extend(&mut offset, 6);
 
-        mem_write(*self.register_from(base_reg) + offset, *self.register_from(src));
+        self.memory.memory_write(
+            *self.register_from(base_reg) + offset,
+            *self.register_from(src),
+        );
     }
 }
 
 // trap instructions
-impl CPU {
-    pub fn put_s(&self) {
+impl<'a> CPU<'a> {
+    pub fn put_s(&mut self) {
         let mut it = self.r0;
-        let mut c = mem_read(it);
+        let mut c = self.memory.memory_read(it);
 
         while c != 0x0 {
-            print!("{}", c as char);
+            print!("{}", c as u8 as char);
             it += 1;
-            c = mem_read(it);
+            c = self.memory.memory_read(it);
         }
     }
 
     pub fn get_c(&mut self) {
         let mut buff = [0 as u8; 1];
-        io::stdin().read_exact(&mut buff).expect("failed to read char from stdin");
+        io::stdin()
+            .read_exact(&mut buff)
+            .expect("failed to read char from stdin");
         self.r0 = buff[0] as u16;
     }
 
@@ -401,29 +419,31 @@ impl CPU {
         print!("Enter a character: ");
 
         let mut buff = [0 as u8; 1];
-        io::stdin().read_exact(&mut buff).expect("failed to read char from stdin");
+        io::stdin()
+            .read_exact(&mut buff)
+            .expect("failed to read char from stdin");
 
         print!("{}", buff[0] as char);
 
         self.r0 = buff[0] as u16;
     }
 
-    pub fn put_sp(&self) {
+    pub fn put_sp(&mut self) {
         let mut it = self.r0;
-        let mut c = mem_read(it);
+        let mut c = self.memory.memory_read(it);
 
         while c != 0x0 {
             let c1 = c & 0xFF;
 
-            print!("{}", c1 as char);
+            print!("{}", c1 as u8 as char);
 
             let c2 = c >> 8;
             if c2 != 0x0 {
-                print!("{}", c2 as char);
+                print!("{}", c2 as u8 as char);
             }
 
             it += 1;
-            c = mem_read(it);
+            c = self.memory.memory_read(it);
         }
     }
 
