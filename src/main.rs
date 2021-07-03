@@ -1,6 +1,3 @@
-use lc3_vm::VM;
-use std::env;
-
 fn main() {
-    VM::new(env::args().collect()).run();
+    lc3_vm::VM::new(std::env::args().collect()).run();
 }
