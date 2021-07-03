@@ -1,9 +1,16 @@
+//! LC3 Virtual CPU
+//!
+//! Provides a virtual CPU with 8 usable general purpose
+//! registers and two additional registers for the program 
+//! counters and condition flag.
 use super::memory::Memory;
 use super::ErrCode;
 
 use std::io::{self, Read, Write};
 
+/// Supported Trap system calls for the LC3 CPU.
 #[repr(u16)]
+#[derive(Debug, PartialEq)]
 pub enum Trap {
     GetC = 0x20,  // get character from keyboard
     Out = 0x21,   // output character
@@ -14,6 +21,17 @@ pub enum Trap {
 }
 
 impl Trap {
+    /// Converts from u16 to CPU Trap
+    /// Panics on invalid input.
+    ///
+    /// # Exmaples
+    /// ```
+    /// use lc3_vm::cpu;
+    ///
+    /// let t = cpu::Trap::from(0x20);
+    ///
+    /// assert_eq!(t, cpu::Trap::GetC);
+    /// ```
     pub fn from(v: u16) -> Trap {
         match v {
             0x20 => Trap::GetC,
@@ -27,7 +45,9 @@ impl Trap {
     }
 }
 
+/// Supported Condition flags after a single CPU instruction.
 #[repr(u16)]
+#[derive(Debug, PartialEq)]
 pub enum Condition {
     FlPos = 1 << 0, // pos
     FlZro = 1 << 1, // zero
@@ -35,6 +55,17 @@ pub enum Condition {
 }
 
 impl Condition {
+    /// Converts from u16 to CPU Condition
+    /// Panics on invalid input.
+    ///
+    /// # Exmaples
+    /// ```
+    /// use lc3_vm::cpu;
+    ///
+    /// let t = cpu::Condition::from(0x1);
+    ///
+    /// assert_eq!(t, cpu::Condition::FlPos);
+    /// ```
     pub fn from(v: u16) -> Condition {
         match v {
             1 => Condition::FlPos,
@@ -45,7 +76,9 @@ impl Condition {
     }
 }
 
+/// Supporte LC3 CPU instructions.
 #[repr(u8)]
+#[derive(Debug, PartialEq)]
 pub enum Instruction {
     OpBr,   // branch
     OpAdd,  // add
@@ -66,6 +99,17 @@ pub enum Instruction {
 }
 
 impl Instruction {
+    /// Converts from u16 to CPU instruction.
+    /// Panics on invalid input.
+    ///
+    /// # Exmaples
+    /// ```
+    /// use lc3_vm::cpu;
+    ///
+    /// let t = cpu::Instruction::from(0x1);
+    ///
+    /// assert_eq!(t, cpu::Instruction::OpAdd);
+    /// ```
     pub fn from(v: u8) -> Instruction {
         match v {
             0x0 => Instruction::OpBr,
@@ -88,6 +132,16 @@ impl Instruction {
         }
     }
 
+    /// Converts CPU instruction to u16.
+    ///
+    /// # Exmaples
+    /// ```
+    /// use lc3_vm::cpu;
+    ///
+    /// let t = cpu::Instruction::OpAdd;
+    ///
+    /// assert_eq!(t.value(), 0x1);
+    /// ```
     pub fn value(&self) -> u8 {
         match self {
             Instruction::OpBr => 0x0,
@@ -110,25 +164,40 @@ impl Instruction {
     }
 }
 
+/// Virtual LC3 CPU with 8 general purpose registers
+/// and a program counter and condition register.
 pub struct CPU {
     // general purpose registers.
-    pub r0: u16,
-    pub r1: u16,
-    pub r2: u16,
-    pub r3: u16,
-    pub r4: u16,
-    pub r5: u16,
-    pub r6: u16,
-    pub r7: u16,
+    r0: u16,
+    r1: u16,
+    r2: u16,
+    r3: u16,
+    r4: u16,
+    r5: u16,
+    r6: u16,
+    r7: u16,
 
     // program counter register.
-    pub pc: u16,
+    pc: u16,
 
     // condition register.
-    pub cond: u16,
+    cond: u16,
 }
 
 impl CPU {
+    /// Returns a default initiazlie virtual CPU.
+    /// A default initialized means all registers
+    /// are set to the value `0x0` with the exception
+    /// for the `pc` register which has an intial value
+    /// of `0x3000`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lc3_vm::cpu::CPU;
+    ///
+    /// let _ = CPU::new();
+    /// ```
     pub fn new() -> Self {
         CPU {
             r0: 0,
@@ -144,6 +213,9 @@ impl CPU {
         }
     }
 
+    /// Starts fetching a single instruction at
+    /// a time from the main memory and executes
+    /// the instruction.
     pub fn run(&mut self, m: &mut Memory) -> ! {
         loop {
             let instr = m.memory_read(self.pc);
@@ -153,7 +225,7 @@ impl CPU {
         }
     }
 
-    pub fn exec(&mut self, instruction: u16, m: &mut Memory) {
+    fn exec(&mut self, instruction: u16, m: &mut Memory) {
         let op_code = instruction >> 12;
 
         match Instruction::from(op_code as u8) {
@@ -183,11 +255,11 @@ impl CPU {
         }
     }
 
-    pub fn next_instruction(&mut self) {
+    fn next_instruction(&mut self) {
         self.pc = self.pc.wrapping_add(1);
     }
 
-    pub fn set_cond(&mut self, r: u16) {
+    fn set_cond(&mut self, r: u16) {
         if r == 0 {
             self.cond = Condition::FlZro as u16;
         } else if r >> 15 & 0x1 == 1 {
@@ -238,7 +310,7 @@ impl CPU {
 
 // cpu instructions.
 impl CPU {
-    pub fn add(&mut self, instr: u16) {
+    fn add(&mut self, instr: u16) {
         // dst register
         let dst = ((instr >> 9) & 0x7) as u8;
 
@@ -258,7 +330,7 @@ impl CPU {
         self.set_cond(*self.register_from(dst));
     }
 
-    pub fn load_indirect(&mut self, instr: u16, m: &mut Memory) {
+    fn load_indirect(&mut self, instr: u16, m: &mut Memory) {
         let dst = ((instr >> 9) & 0x7) as u8;
 
         let mut offset = instr & 0x1FF;
@@ -269,7 +341,7 @@ impl CPU {
         self.set_cond(*self.register_from(dst));
     }
 
-    pub fn bitwise_and(&mut self, instr: u16) {
+    fn bitwise_and(&mut self, instr: u16) {
         let dst = ((instr >> 9) & 0x7) as u8;
 
         let left = *self.register_from(((instr >> 6) & 0x7) as u8);
@@ -286,7 +358,7 @@ impl CPU {
         self.set_cond(*self.register_from(dst));
     }
 
-    pub fn bitwise_not(&mut self, instr: u16) {
+    fn bitwise_not(&mut self, instr: u16) {
         let dst = ((instr >> 9) & 0x7) as u8;
         let left = *self.register_from(((instr >> 6) & 0x7) as u8);
 
@@ -295,7 +367,7 @@ impl CPU {
         self.set_cond(*self.register_from(dst));
     }
 
-    pub fn branch(&mut self, instr: u16) {
+    fn branch(&mut self, instr: u16) {
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
@@ -306,12 +378,12 @@ impl CPU {
         }
     }
 
-    pub fn jump(&mut self, instr: u16) {
+    fn jump(&mut self, instr: u16) {
         let reg = ((instr >> 6) & 0x7) as u8;
         self.pc = *self.register_from(reg);
     }
 
-    pub fn jump_register(&mut self, instr: u16) {
+    fn jump_register(&mut self, instr: u16) {
         self.r7 = self.pc;
 
         if (instr >> 11) & 0x1 == 0x1 {
@@ -325,7 +397,7 @@ impl CPU {
         }
     }
 
-    pub fn load(&mut self, instr: u16, m: &mut Memory) {
+    fn load(&mut self, instr: u16, m: &mut Memory) {
         let dest = ((instr >> 9) & 0x7) as u8;
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
@@ -335,7 +407,7 @@ impl CPU {
         self.set_cond(*self.register_from(dest));
     }
 
-    pub fn load_register(&mut self, instr: u16, m: &mut Memory) {
+    fn load_register(&mut self, instr: u16, m: &mut Memory) {
         let dest = ((instr >> 9) & 0x7) as u8;
         let base_reg = ((instr >> 6) & 0x7) as u8;
         let mut offset = instr & 0x3F;
@@ -347,7 +419,7 @@ impl CPU {
         self.set_cond(*self.register_from(dest));
     }
 
-    pub fn load_effective_address(&mut self, instr: u16) {
+    fn load_effective_address(&mut self, instr: u16) {
         let dest = ((instr >> 9) & 0x7) as u8;
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
@@ -356,7 +428,7 @@ impl CPU {
         self.set_cond(*self.register_from(dest))
     }
 
-    pub fn store(&mut self, instr: u16, m: &mut Memory) {
+    fn store(&mut self, instr: u16, m: &mut Memory) {
         let src = ((instr >> 9) & 0x7) as u8;
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
@@ -364,7 +436,7 @@ impl CPU {
         m.memory_write(self.pc.wrapping_add(offset), *self.register_from(src));
     }
 
-    pub fn store_indirect(&mut self, instr: u16, m: &mut Memory) {
+    fn store_indirect(&mut self, instr: u16, m: &mut Memory) {
         let src = ((instr >> 9) & 0x7) as u8;
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
@@ -373,7 +445,7 @@ impl CPU {
         m.memory_write(loc, *self.register_from(src));
     }
 
-    pub fn store_register(&mut self, instr: u16, m: &mut Memory) {
+    fn store_register(&mut self, instr: u16, m: &mut Memory) {
         let src = ((instr >> 9) & 0x7) as u8;
         let base_reg = ((instr >> 6) & 0x7) as u8;
         let mut offset = instr & 0x3F;
@@ -388,7 +460,7 @@ impl CPU {
 
 // trap instructions
 impl CPU {
-    pub fn put_s(&mut self, m: &mut Memory) {
+    fn put_s(&mut self, m: &mut Memory) {
         let mut it = self.r0;
         let mut c = m.memory_read(it);
 
@@ -399,7 +471,7 @@ impl CPU {
         }
     }
 
-    pub fn get_c(&mut self) {
+    fn get_c(&mut self) {
         let mut buff = [0 as u8; 1];
         io::stdin()
             .read_exact(&mut buff)
@@ -407,11 +479,11 @@ impl CPU {
         self.r0 = buff[0] as u16;
     }
 
-    pub fn out(&self) {
+    fn out(&self) {
         print!("{}", self.r0 as u8 as char);
     }
 
-    pub fn read(&mut self) {
+    fn read(&mut self) {
         print!("Enter a character: ");
 
         let mut buff = [0 as u8; 1];
@@ -424,7 +496,7 @@ impl CPU {
         self.r0 = buff[0] as u16;
     }
 
-    pub fn put_sp(&mut self, m: &mut Memory) {
+    fn put_sp(&mut self, m: &mut Memory) {
         let mut it = self.r0;
         let mut c = m.memory_read(it);
 
@@ -439,11 +511,11 @@ impl CPU {
             }
 
             it += 1;
-            c = self.memory.memory_read(it);
+            c = m.memory_read(it);
         }
     }
 
-    pub fn halt(&self) {
+    fn halt(&self) {
         print!("HALT");
         std::process::exit(ErrCode::Halt as i32);
     }
