@@ -1,4 +1,5 @@
 use super::memory::Memory;
+use super::ErrCode;
 
 use std::io::{self, Read};
 
@@ -449,6 +450,6 @@ impl<'a> CPU<'a> {
 
     pub fn halt(&self) {
         print!("HALT");
-        std::process::abort();
+        std::process::exit(ErrCode::Halt as i32);
     }
 }

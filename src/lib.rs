@@ -12,6 +12,7 @@ pub mod memory;
 pub enum ErrCode {
     InvalidArgs = 0x1,
     MissingArgs = 0x2,
+    Halt = 0x3,
 }
 
 pub struct Cli {
