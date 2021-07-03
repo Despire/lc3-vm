@@ -1,7 +1,7 @@
 use super::memory::Memory;
 use super::ErrCode;
 
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 
 #[repr(u16)]
 pub enum Trap {
@@ -110,7 +110,7 @@ impl Instruction {
     }
 }
 
-pub struct CPU<'a> {
+pub struct CPU {
     // general purpose registers.
     pub r0: u16,
     pub r1: u16,
@@ -126,13 +126,10 @@ pub struct CPU<'a> {
 
     // condition register.
     pub cond: u16,
-
-    // memory reference.
-    pub memory: &'a mut Memory,
 }
 
-impl<'a> CPU<'a> {
-    pub fn new(memory: &'a mut Memory) -> Self {
+impl CPU {
+    pub fn new() -> Self {
         CPU {
             r0: 0,
             r1: 0,
@@ -144,50 +141,50 @@ impl<'a> CPU<'a> {
             r7: 0,
             pc: 0x3000, // 0x3000 is the default position.
             cond: 0,
-            memory,
         }
     }
 
-    pub fn run(&mut self) -> ! {
+    pub fn run(&mut self, m: &mut Memory) -> ! {
         loop {
-            let instr = self.memory.memory_read(self.pc);
+            let instr = m.memory_read(self.pc);
             self.next_instruction();
-            self.exec(instr);
+            self.exec(instr, m);
+            std::io::stdout().flush().expect("failed to flush stdout");
         }
     }
 
-    pub fn exec(&mut self, instruction: u16) {
+    pub fn exec(&mut self, instruction: u16, m: &mut Memory) {
         let op_code = instruction >> 12;
 
         match Instruction::from(op_code as u8) {
             Instruction::OpBr => self.branch(instruction),
             Instruction::OpAdd => self.add(instruction),
-            Instruction::OpLd => self.load(instruction),
-            Instruction::OpSt => self.store(instruction),
+            Instruction::OpLd => self.load(instruction, m),
+            Instruction::OpSt => self.store(instruction, m),
             Instruction::OpJsr => self.jump_register(instruction),
             Instruction::OpAnd => self.bitwise_and(instruction),
-            Instruction::OpLdr => self.load_register(instruction),
-            Instruction::OpStr => self.store_register(instruction),
+            Instruction::OpLdr => self.load_register(instruction, m),
+            Instruction::OpStr => self.store_register(instruction, m),
             Instruction::OpRti => panic!("OP_RTI unsupported instruction"),
             Instruction::OpNot => self.bitwise_not(instruction),
-            Instruction::OpLdi => self.load_indirect(instruction),
-            Instruction::OpSti => self.store_indirect(instruction),
+            Instruction::OpLdi => self.load_indirect(instruction, m),
+            Instruction::OpSti => self.store_indirect(instruction, m),
             Instruction::OpJmp => self.jump(instruction),
             Instruction::OpRes => panic!("OP_RES unsupported instruction"),
             Instruction::OpLea => self.load_effective_address(instruction),
             Instruction::OpTrap => match Trap::from(instruction & 0xFF) {
                 Trap::GetC => self.get_c(),
                 Trap::Out => self.out(),
-                Trap::PutS => self.put_s(),
+                Trap::PutS => self.put_s(m),
                 Trap::In => self.read(),
-                Trap::PutSp => self.put_sp(),
+                Trap::PutSp => self.put_sp(m),
                 Trap::Halt => self.halt(),
             },
         }
     }
 
     pub fn next_instruction(&mut self) {
-        self.pc += 1
+        self.pc = self.pc.wrapping_add(1);
     }
 
     pub fn set_cond(&mut self, r: u16) {
@@ -240,7 +237,7 @@ impl<'a> CPU<'a> {
 }
 
 // cpu instructions.
-impl<'a> CPU<'a> {
+impl CPU {
     pub fn add(&mut self, instr: u16) {
         // dst register
         let dst = ((instr >> 9) & 0x7) as u8;
@@ -261,14 +258,14 @@ impl<'a> CPU<'a> {
         self.set_cond(*self.register_from(dst));
     }
 
-    pub fn load_indirect(&mut self, instr: u16) {
+    pub fn load_indirect(&mut self, instr: u16, m: &mut Memory) {
         let dst = ((instr >> 9) & 0x7) as u8;
 
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        let loc = self.memory.memory_read(self.pc.wrapping_add(offset));
-        *self.register_from_mut(dst) = self.memory.memory_read(loc);
+        let loc = m.memory_read(self.pc.wrapping_add(offset));
+        *self.register_from_mut(dst) = m.memory_read(loc);
         self.set_cond(*self.register_from(dst));
     }
 
@@ -328,25 +325,24 @@ impl<'a> CPU<'a> {
         }
     }
 
-    pub fn load(&mut self, instr: u16) {
+    pub fn load(&mut self, instr: u16, m: &mut Memory) {
         let dest = ((instr >> 9) & 0x7) as u8;
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        *self.register_from_mut(dest) = self.memory.memory_read(self.pc.wrapping_add(offset));
+        *self.register_from_mut(dest) = m.memory_read(self.pc.wrapping_add(offset));
 
         self.set_cond(*self.register_from(dest));
     }
 
-    pub fn load_register(&mut self, instr: u16) {
+    pub fn load_register(&mut self, instr: u16, m: &mut Memory) {
         let dest = ((instr >> 9) & 0x7) as u8;
         let base_reg = ((instr >> 6) & 0x7) as u8;
         let mut offset = instr & 0x3F;
         CPU::sign_extend(&mut offset, 6);
 
-        *self.register_from_mut(dest) = self
-            .memory
-            .memory_read(self.register_from(base_reg).wrapping_add(offset));
+        *self.register_from_mut(dest) =
+            m.memory_read(self.register_from(base_reg).wrapping_add(offset));
 
         self.set_cond(*self.register_from(dest));
     }
@@ -360,31 +356,30 @@ impl<'a> CPU<'a> {
         self.set_cond(*self.register_from(dest))
     }
 
-    pub fn store(&mut self, instr: u16) {
+    pub fn store(&mut self, instr: u16, m: &mut Memory) {
         let src = ((instr >> 9) & 0x7) as u8;
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        self.memory
-            .memory_write(self.pc.wrapping_add(offset), *self.register_from(src));
+        m.memory_write(self.pc.wrapping_add(offset), *self.register_from(src));
     }
 
-    pub fn store_indirect(&mut self, instr: u16) {
+    pub fn store_indirect(&mut self, instr: u16, m: &mut Memory) {
         let src = ((instr >> 9) & 0x7) as u8;
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        let loc = self.memory.memory_read(self.pc.wrapping_add(offset));
-        self.memory.memory_write(loc, *self.register_from(src));
+        let loc = m.memory_read(self.pc.wrapping_add(offset));
+        m.memory_write(loc, *self.register_from(src));
     }
 
-    pub fn store_register(&mut self, instr: u16) {
+    pub fn store_register(&mut self, instr: u16, m: &mut Memory) {
         let src = ((instr >> 9) & 0x7) as u8;
         let base_reg = ((instr >> 6) & 0x7) as u8;
         let mut offset = instr & 0x3F;
         CPU::sign_extend(&mut offset, 6);
 
-        self.memory.memory_write(
+        m.memory_write(
             self.register_from(base_reg).wrapping_add(offset),
             *self.register_from(src),
         );
@@ -392,15 +387,15 @@ impl<'a> CPU<'a> {
 }
 
 // trap instructions
-impl<'a> CPU<'a> {
-    pub fn put_s(&mut self) {
+impl CPU {
+    pub fn put_s(&mut self, m: &mut Memory) {
         let mut it = self.r0;
-        let mut c = self.memory.memory_read(it);
+        let mut c = m.memory_read(it);
 
         while c != 0x0 {
             print!("{}", c as u8 as char);
             it += 1;
-            c = self.memory.memory_read(it);
+            c = m.memory_read(it);
         }
     }
 
@@ -429,9 +424,9 @@ impl<'a> CPU<'a> {
         self.r0 = buff[0] as u16;
     }
 
-    pub fn put_sp(&mut self) {
+    pub fn put_sp(&mut self, m: &mut Memory) {
         let mut it = self.r0;
-        let mut c = self.memory.memory_read(it);
+        let mut c = m.memory_read(it);
 
         while c != 0x0 {
             let c1 = c & 0xFF;
