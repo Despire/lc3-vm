@@ -266,7 +266,7 @@ impl<'a> CPU<'a> {
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        let loc = self.memory.memory_read(self.pc + offset);
+        let loc = self.memory.memory_read(self.pc.wrapping_add(offset));
         *self.register_from_mut(dst) = self.memory.memory_read(loc);
         self.set_cond(*self.register_from(dst));
     }
@@ -304,7 +304,7 @@ impl<'a> CPU<'a> {
         let cond = ((instr >> 9) & 0x7) as u16;
 
         if (self.cond & cond as u16) > 0x0 {
-            self.pc = self.pc + offset;
+            self.pc = self.pc.wrapping_add(offset);
         }
     }
 
@@ -320,7 +320,7 @@ impl<'a> CPU<'a> {
             let mut offset = instr & 0x7FF;
             CPU::sign_extend(&mut offset, 11);
 
-            self.pc = self.pc + offset;
+            self.pc = self.pc.wrapping_add(offset);
         } else {
             let base = ((instr >> 6) & 0x7) as u8;
             self.pc = *self.register_from(base);
@@ -332,7 +332,7 @@ impl<'a> CPU<'a> {
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        *self.register_from_mut(dest) = self.memory.memory_read(self.pc + offset);
+        *self.register_from_mut(dest) = self.memory.memory_read(self.pc.wrapping_add(offset));
 
         self.set_cond(*self.register_from(dest));
     }
@@ -345,7 +345,7 @@ impl<'a> CPU<'a> {
 
         *self.register_from_mut(dest) = self
             .memory
-            .memory_read(*self.register_from(base_reg) + offset);
+            .memory_read(self.register_from(base_reg).wrapping_add(offset));
 
         self.set_cond(*self.register_from(dest));
     }
@@ -355,7 +355,7 @@ impl<'a> CPU<'a> {
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        *self.register_from_mut(dest) = self.pc + offset;
+        *self.register_from_mut(dest) = self.pc.wrapping_add(offset);
         self.set_cond(*self.register_from(dest))
     }
 
@@ -365,7 +365,7 @@ impl<'a> CPU<'a> {
         CPU::sign_extend(&mut offset, 9);
 
         self.memory
-            .memory_write(self.pc + offset, *self.register_from(src));
+            .memory_write(self.pc.wrapping_add(offset), *self.register_from(src));
     }
 
     pub fn store_indirect(&mut self, instr: u16) {
@@ -373,7 +373,7 @@ impl<'a> CPU<'a> {
         let mut offset = instr & 0x1FF;
         CPU::sign_extend(&mut offset, 9);
 
-        let loc = self.memory.memory_read(self.pc + offset);
+        let loc = self.memory.memory_read(self.pc.wrapping_add(offset));
         self.memory.memory_write(loc, *self.register_from(src));
     }
 
@@ -384,7 +384,7 @@ impl<'a> CPU<'a> {
         CPU::sign_extend(&mut offset, 6);
 
         self.memory.memory_write(
-            *self.register_from(base_reg) + offset,
+            self.register_from(base_reg).wrapping_add(offset),
             *self.register_from(src),
         );
     }

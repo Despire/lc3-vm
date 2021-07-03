@@ -13,6 +13,14 @@ impl Memory {
         Memory([0 as u16; 1 << 16])
     }
 
+    pub fn raw(&self) -> &[u16] {
+        &self.0
+    }
+
+    pub fn raw_mut(&mut self) -> &mut [u16] {
+        &mut self.0
+    }
+
     pub fn memory_write(&mut self, addr: u16, val: u16) {
         self.0[addr as usize] = val;
     }
